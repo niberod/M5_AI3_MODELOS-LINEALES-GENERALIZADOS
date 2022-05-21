@@ -1,0 +1,333 @@
+---
+title: Módulo 5 Actividad 3
+subtitle: Modelos Lineales Generalizados
+author: Nicolás Bene
+output: pdf_document
+---
+
+# Descripción de la tarea
+Utilizando la base de datos de pisos, que hemos utilizado durante el temario en la que podemos encontrar un listado de pisos disponibles en Airbnb en Madrid, por temas computacionales, debes quedarte con un máximo de 2000 viviendas para responder las siguientes preguntas:
+
+* 1) ¿Existe dependencia espacial en la variable precio? ¿Qué tipo de dependencia espacial existe: local, global o ambas? 
+      
+* 2) Establece un modelo lineal para estimar la variable precio por m2. ¿Hay dependencia espacial en los residuos del modelo? 
+      
+* 3) Introduce una variable más en el modelo. Dicha variable es la distancia mínima entre cada persona y la geolocalización de las oficinas bancarias de Madrid obtenidas con OSM. ¿Sigue habiendo dependencia espacial en los residuos del nuevo modelo? 
+      
+* 4) Modeliza el precio con un SAR. ¿Es significativo el factor de dependencia espacial? Interpreta el modelo.
+      
+* 5) Modeliza el precio con un SEM. ¿Es significativo el factor de dependencia espacial? Interpreta el modelo. 
+      
+* 6) Valora la capacidad predictiva del modelo SAR con la técnica de validación cruzada. 
+      
+* 7) Propón un modelo GWR para estimar los residuos con un cierto suavizado.
+
+
+Primero que nada, cargo los paquetes a usar y las librerías que vienen en el script functions, a efectos de usar las funciones vistas durante el curso.:
+
+```{r librerias, message=F,warning=F}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(spatialreg))
+suppressPackageStartupMessages(source("../Datos/Functions.R"))
+
+#Saco notación científica
+options(scipen=999)
+
+```
+Posteriormente cargo la base de datos de los pisos disponibles en Madrid por Airbnb.
+
+```{r carga de base}
+#Cargo la base
+pisos<-read.csv("table_5.05.csv",sep=",")[,-1] 
+
+#Modifico los nombres de latitud y longitud para poder correr las diferentes funciones
+pisos <- pisos %>% 
+      rename(
+            LONG=longitude,
+            LAT=latitude
+            )
+
+```
+
+A continuación me quedo solo con 2 mil observaciones de la base, tal como lo solicita el ejercicio. Para ello hago un muestreo.
+
+```{r me quedo con 2 mil observaciomes}
+
+#Fijo semilla
+set.seed(123)
+
+#hago muestreo
+sample_index <- sample(1:nrow(pisos),size = 2000)
+
+#Selecciono la muestra
+pisos_muestra <- pisos[sample_index,]
+
+#Modifico los índices
+rownames(pisos_muestra) <- 1:nrow(pisos_muestra)
+
+#Borro la base inicial y el índice de muestreo
+rm(pisos, sample_index)
+
+```
+
+# 1) ¿Existe dependencia espacial en la variable precio? ¿Qué tipo de dependencia espacial existe: local, global o ambas? 
+
+Para ver si hay o no dependencia espacial en la variable precio, utilizo el test de I-Moran.
+
+```{r test de Moran con variable precio,warning=FALSE,message=FALSE}
+#Obtengo el set de vecinos más cercanos con k = 10
+nb <- knn2nb(knearneigh(cbind(pisos_muestra$LONG, pisos_muestra$LAT), k=10))
+
+#Hago el test de Moran I contra la variable precio
+moran.test(x = pisos_muestra$price, listw = nb2listw(nb, style="W"))
+moran.plot(x = pisos_muestra$price, listw = nb2listw(nb, style="W"),main="Gráfico I Moran")
+```
+Se observa que el p-valor es menor al 5% (incluso menor al 0,1%), por lo que se rechaza la hipótesis nula de que el precio esté distribuido en forma aleatoria en el espacio. Por lo tanto, existe dependencia espacial en la variable precio.
+
+En el test de Moran se analizala dependencia espacial a nivel global, para ver si a nivel local hay zonas con alto grado de dependencia aplico el test LISA para ver por regiones de Madrid.
+
+```{r test LISA con variable precio,results='asis', size="small",warning=FALSE,message=FALSE}
+#Hago test local
+imoranlocal<-as.data.frame(
+      localmoran(
+            x =  pisos_muestra$price, list = nb2listw(nb, style="W")
+            )
+      )
+pisos_muestra$registo<-1    
+
+#Ploteo el mapa con correlaciones
+pl_pt(pisos_muestra,color2 = imoranlocal$Z.Ii,size2 =pisos_muestra$registo ,dd = 6) %>%
+#Fijo la vista en el centro y el zoom
+setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11) 
+```
+Centrándonos en los valores altos, se observan concentración de puntos rojos (alta correlación espacial) en el barrio residencial de Puerta del Ángel, al norte del Parque del Retiro, y también en la zona norte del distrito de Puente de Vallecas. Estos tres focos tienen cierto sentido, ya que Puerta del Ángel se trata de un barrio residencial de moda conocido como "El Brooklyn Madrileño" donde han subido los precios del metro cuadrado (ver  https://www.telemadrid.es/noticias/madrid/Brooklyn-madrileno-barrio-moda-problemas-0-2368263175--20210813111855.html). Puente de Vallecas es uno de los distritos más poblados de Madrid (https://es.wikipedia.org/wiki/Puente_de_Vallecas) y la zona al norte del parque de Retiro puede ser una zona concurrida por turistas.
+
+Por lo tanto se observa una dependencia espacial local.
+
+# 2) Establece un modelo lineal para estimar la variable precio por m2. ¿Hay dependencia espacial en los residuos del modelo? 
+
+Para establecer un modelo lineal que permita estimar el precio, uso como variable dependiente el logaritmo del precio, a efectos de obtener mejores modelos. Acto seguido, creo primero el modelo lineal saturado, usando todas las variables salvo latitud, longitud, precio, la variable registo creada en en el ejercicio anteriror, y el tipo de habitación (ya que todos los pisos son de la misma categoría: "Entire home/apt").
+
+
+```{r modelo saturado}
+
+#Creo el modelo saturado.
+modelo_lm_saturado <- lm(logprice~., 
+                data = pisos_muestra %>%  
+                      dplyr::select(
+                            -room_type,-price,-registo,
+                            -LONG,-LAT
+                            ))
+
+#Hago summary del modelo
+summary(modelo_lm_saturado)
+
+```
+Con este modelo saturado uso el algoritmo stepwise con el método "backward" a efectos de quedarme con las variables que resulten en un mejor AIC para el modelo.
+
+```{r modelo lm step}
+#Creo modelo step
+modelo_lm_step <- stepAIC(modelo_lm_saturado, direction ="backward",trace = F)
+
+#Hago summary del modelo
+summary(modelo_lm_step )
+
+```
+El modelo al que llega el stepwise selection backwards contiene dos variables (instant_bookablet y Vecinos) que no son significativas. Las elimino, y me quedo con el resto.
+
+```{r formula modelo depurado}
+
+#Pongo en la fórmula las variables del stepwise que dieron significativas
+formula <- as.formula(' logprice ~ minimum_nights + review_scores_value + 
+    calculated_host_listings_count + bedrooms + reviews_per_month + 
+    accommodates +  Distancia_Centro + Distancia_Sur')
+    
+#Creo el modelo depurado
+modelo_lm_depurado <- lm(formula, data=pisos_muestra)
+
+#Hago el summary del modelo
+summary(modelo_lm_depurado)
+
+```
+Se observa que todas las variables son ahora significativas, y en los summary se aprecia que el coeficiente de determinación no sufrió cambios drásticos. Tampoco aumentó drásticamente el AIC del modelo depurado con respecto al step por haber eliminado esas dos variables, tal como se muestra a continuación.
+
+```{r AIC y coeficiente de determinación}
+
+paste("El AIC del modelo step es:", AIC(modelo_lm_step))
+paste("El AIC del modelo depurado es:", AIC(modelo_lm_depurado))
+```
+Por lo tanto se tiene un modelo más parsimonioso (con menos variables) y con índices que no sufrieron muchas modificaciones. Es por esto que me quedo con este modelo depurado.
+
+Otro aspecto importante a resaltar es que el modelo considera dos variables de distancia, que son la distancia al centro y la distancia al sur. Por lo que de cierta forma ya se están considerando variables espaciales.
+
+A continuación analizo si existe dependencia espacial en los residuos del modelo depurado.
+
+```{r test de Moran residuos modelo depurado,warning=FALSE,message=FALSE}
+#Hago el test de Moran I contra la variable precio
+moran.test(x = modelo_lm_depurado$residuals, listw = nb2listw(nb, style="W"))
+moran.plot(x = modelo_lm_depurado$residuals, listw = nb2listw(nb, style="W"),
+           main="Gráfico I Moran")
+```
+
+El p-valor es menor a un nivel de significación del 5%, por lo que se rechaza la hipotesis nula de que los residuos no están correlacionados espacialmente. Por lo tanto hay dependencia espacial en los residuos de los modelos. Existen otros aspectos espaciales que el modelo no los está tomando en cuenta. No alcanza solo con considerar la distancia al centro y al sur de Madrid, hay otros variables espaciales que inciden en la formación del precio.
+
+También es posible hacer un test a nivel local para encontrar correlaciones en ciertas regiones.
+
+
+```{r test LISA residuos modelo depurado, warning=FALSE,message=FALSE}
+
+#Hago test local
+imoranlocal<-as.data.frame(
+      localmoran(
+            x =  modelo_lm_depurado$residuals, listw = nb2listw(nb, style="W")
+            )
+      )
+                
+#Realizo el map con correlaciones locales        
+pl_pt(pisos_muestra,color2 = imoranlocal$Z.Ii,size2 =pisos_muestra$registo ,dd = 6) %>% 
+#Fijo la vista en el centro y el zoom
+setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11) 
+```
+En este caso la zona de Puerta del Ángel no se ve con tanta correlación alta como sucedía al realizar el test con la variable precio. Pero sí se sigue viendo en Puente de Vallecas y también al norte del Parque de Retiro con correlación alta. También aparece el distrito de Hortaleza, y los barrios de Concepción y Quintana con varios puntos rojos. 
+
+
+# 3) Introduce una variable más en el modelo. Dicha variable es la distancia mínima entre cada persona y la geolocalización de las oficinas bancarias de Madrid obtenidas con OSM. ¿Sigue habiendo dependencia espacial en los residuos del nuevo modelo? 
+
+Primero que nada cargo datos de agencias de Banco en Madrid y su geolocalización, calculo la distancia de cada piso con respecto a las mismas y me quedo con la menor.
+
+```{r carga de datos de bancos, warning=FALSE,message=FALSE}
+#Cargo datos geolocalizados de agencias de bancos de Madrid
+datos_bancos<-read_csv2("Agencias33.csv")
+
+#Calculo la distancias de los pisos a los bancos
+Distancias<-
+      distm(
+            cbind(pisos_muestra$LONG,pisos_muestra$LAT),
+            cbind(datos_bancos$LONG_IND,datos_bancos$LAT_IND),
+            fun = distCosine )/1000
+
+#Obtengo la distancia mínima de cada piso al banco más cercano
+pisos_muestra$Dist_Min_b<-round(apply(Distancias,1,min),1)
+
+
+```
+Creo luego un nuevo modelo, con las mismas variables del modelo depurado, y además le agrego la variable de distancia mínima a un banco recién creada.
+
+```{r modelo con distancia a banco}
+
+#Especifico el modelo
+formula <- as.formula(' logprice ~ minimum_nights + review_scores_value + 
+    calculated_host_listings_count + bedrooms + reviews_per_month + 
+    accommodates +  Distancia_Centro + Distancia_Sur+Dist_Min_b')
+
+#Creo el modelo
+modelo_dist_banco <- lm(formula,pisos_muestra)
+
+#Hago el summary
+summary(modelo_dist_banco)
+```
+Lo primero que se observa con este modelo es que la distancia mínima a un banco no es una variable significativa, ya que su p-valor es superior al 5%. De todas maneras analizo si los residuos de este modelo presentan dependencia espacial.
+
+
+```{r test de Moran residuos modelo con distancia a bancos, warning=FALSE,message=FALSE}
+#Hago el test de Moran I contra los residuos
+moran.test(x = modelo_dist_banco$residuals, listw = nb2listw(nb, style="W"))
+moran.plot(x = modelo_dist_banco$residuals, listw = nb2listw(nb, style="W"),
+           main="Gráfico I Moran")
+```
+
+Nuevamente el p-valor es inferior a un alfa del 5%, por lo que sigue habiendo dependencia espacial en los residuos del modelo. También podemos analizar que sucede a nivel local.
+
+```{r test LISA modelo con distancia a Bancos,results='asis', size="small",warning=FALSE,message=FALSE}
+#Hago test local
+imoranlocal<-as.data.frame(
+      localmoran(
+            x =  modelo_dist_banco$residuals, list = nb2listw(nb, style="W")
+            )
+      )
+pisos_muestra$registo<-1    
+
+#Ploteo el mapa con correlaciones
+pl_pt(pisos_muestra,color2 = imoranlocal$Z.Ii,size2 =pisos_muestra$registo ,dd = 6) %>%
+#Fijo la vista en el centro y el zoom
+setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11) 
+```
+Se siguen observando las mismas zonas con correlación alta que en el modelo depurado.
+
+# 4) Modeliza el precio con un SAR. ¿Es significativo el factor de dependencia espacial? Interpreta el modelo. 
+
+Realizo un modelo SAR, para ello parto de la fórmula del modelo depurado, saco la variable distancia a bancos porque no era significativa.
+
+```{r modelo espacial SAR}
+
+#especifico la formula
+formula <- as.formula(' logprice ~ minimum_nights + review_scores_value + 
+    calculated_host_listings_count + bedrooms + reviews_per_month + 
+    accommodates +  Distancia_Centro + Distancia_Sur')
+
+#Creo el modelo SAR
+modelo_espacial_sar <- lagsarlm(
+                              formula = formula,
+                              data=pisos_muestra, 
+                              listw = nb2listw(nb, style="W")) 
+
+#Hago el summary
+summary(modelo_espacial_sar)
+
+```
+Se observa que este modelo SAR mantiene las mismas variables regresoras que el modelo lm dpeurado anterior, pero agrega un factor espacial que es como incide en un piso, los precios de los pisos cercanos. Este factor espacial se multiplica por el coeficiente Rho, que en el summary se observa que es de 0.26719, y es significativo ya que su p-valor es inferior al 5%. 
+
+Comparo la suma de los cuadrados de los residuos (SCR) para el modelo depurado y el modelo SAR.
+
+```{r comparación SCR modelos}
+paste("residuos modelo LM depurado",sum((modelo_lm_depurado$residuals)**2))
+paste("residuos modelo SAR",sum((modelo_espacial_sar$residuals)**2))
+
+```
+El modelo SAR reduce la suma del cuadrado de los errores. 
+
+Resta ver si los residuos de este modelo SAR presentan dependencia espacial.
+
+```{r test de Moran residuos modelo con distancia a bancos, warning=FALSE,message=FALSE}
+#Hago el test de Moran I contra los residuos
+moran.test(x = modelo_espacial_sar$residuals, listw = nb2listw(nb, style="W"))
+moran.plot(x = modelo_espacial_sar$residuals, listw = nb2listw(nb, style="W"),
+           main="Gráfico I Moran")
+```
+Se observa que el p-valor es bastante superior al 5%,  por lo que no se rechaza la hipotesis nula de que la distribución de los residuos es aleatoria en el espacio. Por lo tanto podemos decir que estos residuos no presentan dependencia espacial.
+
+# 5) Modeliza el precio con un SEM. ¿Es significativo el factor de dependencia espacial? Interpreta el modelo. 
+
+Parto nuevamente de la misma fórmula que el modelo lineal depurado, solo que ahora usamos un modelo SEM, donde se toman en cuenta los efectos de los rezagos espaciales de los errores, los cuales son multiplicados por el coeficiente lambda.
+
+```{r modelo espacial SEM}
+#La fórmula es la misma que la del modelo depurado
+modelo_espacial_sem <- errorsarlm(
+                              formula = formula,
+                              data=pisos_muestra, 
+                              listw = nb2listw(nb, style="W")
+                              )
+
+#Hago el summary
+summary(modelo_espacial_sem)
+```
+Se observa que el Lambda (factor de dependencia espacial) es de 0.27838 y el mismo es significativo ya que su alfa es inferior al 5%.
+
+```{r comparación SCR tres modelos}
+paste("residuos modelo LM depurado",sum((modelo_lm_depurado$residuals)**2))
+paste("residuos modelo SAR",sum((modelo_espacial_sar$residuals)**2))
+paste("residuos modelo SEM",sum((modelo_espacial_sem$residuals)**2))
+```
+El modelo SAR es el que presenta menor SCR. 
+
+Se analiza el test de dependencia espacial de residuos.
+
+```{r test de Moran residuos modelo SEM, warning=FALSE,message=FALSE}
+#Hago el test de Moran I contra los residuos
+moran.test(x = modelo_espacial_sem$residuals, listw = nb2listw(nb, style="W"))
+moran.plot(x = modelo_espacial_sem$residuals, listw = nb2listw(nb, style="W"),
+           main="Gráfico I Moran")
+```
+El p-valor es de 62.94%, por lo que no hay dependencia espacial de residuos.
+
+# 6) Valora la capacidad predictiva del modelo SAR con la técnica de validación cruzada. 
