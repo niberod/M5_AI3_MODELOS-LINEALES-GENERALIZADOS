@@ -331,3 +331,77 @@ moran.plot(x = modelo_espacial_sem$residuals, listw = nb2listw(nb, style="W"),
 El p-valor es de 62.94%, por lo que no hay dependencia espacial de residuos.
 
 # 6) Valora la capacidad predictiva del modelo SAR con la técnica de validación cruzada. 
+
+
+Primero que nada es necesario separar la base en train y test. Usaré 70% para train y 30% para test.
+
+```{r separo en test y train}
+
+#Fijo semilla
+set.seed(123)
+
+#hago muestreo
+train <- sample(1:nrow(pisos_muestra),size = round(nrow(pisos_muestra)*0.7,0))
+
+#Particiono en test y train
+pisos_train <- pisos_muestra[train,]
+pisos_test <- pisos_muestra[-train,]
+
+
+```
+
+
+```{r warning=FALSE,message=FALSE}
+#Obtengo el set de vecinos más cercanos para test y train con k = 10
+nb_train <- knn2nb(knearneigh(cbind(pisos_train$LONG, pisos_train$LAT), k=10),
+                   row.names = rownames(pisos_train) )
+
+
+nb_test <- knn2nb(knearneigh(cbind(pisos_test$LONG, pisos_test$LAT), k=10),
+                  row.names =rownames(pisos_test) )
+```
+
+
+
+```{r}
+#Creo el modelo SAR con CV
+modelo_espacial_sar_CV <- lagsarlm(
+                              formula = formula,
+                              data=pisos_train, 
+                              listw = nb2listw(nb_train, style="W")) 
+
+#Hago el summary
+summary(modelo_espacial_sar_CV)
+```
+```{r}
+
+#Paso a matriz
+nb_test_matrix <- nb2mat(nb_test) 
+
+#Me quedo solo con las X del modelo para poder predecir el precio
+pisos_test_X <- pisos_test %>% 
+                        dplyr::select(
+                              minimum_nights,
+                              review_scores_value,
+                              calculated_host_listings_count,
+                              bedrooms,
+                              reviews_per_month,
+                              accommodates,
+                              Distancia_Centro,
+                              Distancia_Sur
+                        )
+
+rownames(pisos_test_X) <- 1:nrow(pisos_test_X)
+
+
+fitt<-solve(as.matrix(diag(nrow(pisos_test_X))-(as.numeric(modelo_espacial_sar_CV$rho)*nb_test_matrix )))
+fitt2<-as.matrix(pisos_test_X) %*% as.matrix(modelo_espacial_sar_CV$coefficients[-1])+modelo_espacial_sar_CV$coefficients[1]
+fit_final<-fitt %*% fitt2
+
+```
+
+```{r}
+paste("residuos modelo SAR con CV",sum((fit_final-  pisos_test$logprice)**2))
+```
+
+
