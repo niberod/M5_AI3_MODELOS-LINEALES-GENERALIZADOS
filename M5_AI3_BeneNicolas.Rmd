@@ -23,7 +23,7 @@ Utilizando la base de datos de pisos, que hemos utilizado durante el temario en 
 * 7) Propón un modelo GWR para estimar los residuos con un cierto suavizado.
 
 
-Primero que nada, cargo los paquetes a usar y las librerías que vienen en el script functions, a efectos de usar las funciones vistas durante el curso.:
+Primero que nada, cargo los paquetes a usar y las librerías que vienen en el script functions, a efectos de usar las funciones vistas durante el curso.
 
 ```{r librerias, message=F,warning=F}
 suppressPackageStartupMessages(library(tidyverse))
@@ -34,6 +34,7 @@ suppressPackageStartupMessages(source("../Datos/Functions.R"))
 options(scipen=999)
 
 ```
+
 Posteriormente cargo la base de datos de los pisos disponibles en Madrid por Airbnb.
 
 ```{r carga de base}
@@ -56,7 +57,7 @@ A continuación me quedo solo con 2 mil observaciones de la base, tal como lo so
 #Fijo semilla
 set.seed(123)
 
-#hago muestreo
+#Hago muestreo
 sample_index <- sample(1:nrow(pisos),size = 2000)
 
 #Selecciono la muestra
@@ -82,17 +83,19 @@ nb <- knn2nb(knearneigh(cbind(pisos_muestra$LONG, pisos_muestra$LAT), k=10))
 moran.test(x = pisos_muestra$price, listw = nb2listw(nb, style="W"))
 moran.plot(x = pisos_muestra$price, listw = nb2listw(nb, style="W"),main="Gráfico I Moran")
 ```
-Se observa que el p-valor es menor al 5% (incluso menor al 0,1%), por lo que se rechaza la hipótesis nula de que el precio esté distribuido en forma aleatoria en el espacio. Por lo tanto, existe dependencia espacial en la variable precio.
+Se observa que el p-valor es menor al 5% (incluso menor al 0,1%), por lo que se rechaza la hipótesis nula de que el precio esté distribuido en forma aleatoria en el espacio. Por lo tanto, existe dependencia espacial en la variable precio. Esto está sucediendo a nivel global, en todo el mapa.
 
-En el test de Moran se analizala dependencia espacial a nivel global, para ver si a nivel local hay zonas con alto grado de dependencia aplico el test LISA para ver por regiones de Madrid.
+En el test de Moran, como ya fuera mencionado, se analiza la dependencia espacial a nivel global, para ver si a nivel local hay zonas con alto grado de dependencia aplico el test LISA.
 
 ```{r test LISA con variable precio,results='asis', size="small",warning=FALSE,message=FALSE}
+
 #Hago test local
 imoranlocal<-as.data.frame(
-      localmoran(
-            x =  pisos_muestra$price, list = nb2listw(nb, style="W")
-            )
+                  localmoran(
+                              x =  pisos_muestra$price, list = nb2listw(nb, style="W")
+                              )
       )
+
 pisos_muestra$registo<-1    
 
 #Ploteo el mapa con correlaciones
@@ -102,11 +105,11 @@ setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11)
 ```
 Centrándonos en los valores altos, se observan concentración de puntos rojos (alta correlación espacial) en el barrio residencial de Puerta del Ángel, al norte del Parque del Retiro, y también en la zona norte del distrito de Puente de Vallecas. Estos tres focos tienen cierto sentido, ya que Puerta del Ángel se trata de un barrio residencial de moda conocido como "El Brooklyn Madrileño" donde han subido los precios del metro cuadrado (ver  https://www.telemadrid.es/noticias/madrid/Brooklyn-madrileno-barrio-moda-problemas-0-2368263175--20210813111855.html). Puente de Vallecas es uno de los distritos más poblados de Madrid (https://es.wikipedia.org/wiki/Puente_de_Vallecas) y la zona al norte del parque de Retiro puede ser una zona concurrida por turistas.
 
-Por lo tanto se observa una dependencia espacial local.
+Por lo tanto se observa también una dependencia espacial local.
 
 # 2) Establece un modelo lineal para estimar la variable precio por m2. ¿Hay dependencia espacial en los residuos del modelo? 
 
-Para establecer un modelo lineal que permita estimar el precio, uso como variable dependiente el logaritmo del precio, a efectos de obtener mejores modelos. Acto seguido, creo primero el modelo lineal saturado, usando todas las variables salvo latitud, longitud, precio, la variable registo creada en en el ejercicio anteriror, y el tipo de habitación (ya que todos los pisos son de la misma categoría: "Entire home/apt").
+Para establecer un modelo lineal que permita estimar el precio, uso como variable dependiente el logaritmo del precio, a efectos de obtener mejores modelos, y para asegurarse de que las estimaciones sean positivas. Acto seguido, creo primero el modelo lineal saturado, usando todas las variables salvo latitud, longitud, precio, la variable registo creada en en el ejercicio anterior, y el tipo de habitación (ya que todos los pisos son de la misma categoría: "Entire home/apt").
 
 
 ```{r modelo saturado}
@@ -135,7 +138,7 @@ summary(modelo_lm_step )
 ```
 El modelo al que llega el stepwise selection backwards contiene dos variables (instant_bookablet y Vecinos) que no son significativas. Las elimino, y me quedo con el resto.
 
-```{r formula modelo depurado}
+```{r modelo depurado}
 
 #Pongo en la fórmula las variables del stepwise que dieron significativas
 formula <- as.formula(' logprice ~ minimum_nights + review_scores_value + 
@@ -149,7 +152,7 @@ modelo_lm_depurado <- lm(formula, data=pisos_muestra)
 summary(modelo_lm_depurado)
 
 ```
-Se observa que todas las variables son ahora significativas, y en los summary se aprecia que el coeficiente de determinación no sufrió cambios drásticos. Tampoco aumentó drásticamente el AIC del modelo depurado con respecto al step por haber eliminado esas dos variables, tal como se muestra a continuación.
+Se observa que todas las variables son ahora significativas, y en los summary se aprecia que el coeficiente de determinación no sufrió cambios drásticos. Tampoco aumentó significativamente el AIC del modelo depurado con respecto al step por haber eliminado esas dos variables, tal como se muestra a continuación.
 
 ```{r AIC y coeficiente de determinación}
 
@@ -169,7 +172,7 @@ moran.plot(x = modelo_lm_depurado$residuals, listw = nb2listw(nb, style="W"),
            main="Gráfico I Moran")
 ```
 
-El p-valor es menor a un nivel de significación del 5%, por lo que se rechaza la hipotesis nula de que los residuos no están correlacionados espacialmente. Por lo tanto hay dependencia espacial en los residuos de los modelos. Existen otros aspectos espaciales que el modelo no los está tomando en cuenta. No alcanza solo con considerar la distancia al centro y al sur de Madrid, hay otros variables espaciales que inciden en la formación del precio.
+El p-valor es menor a un nivel de significación del 5%, por lo que se rechaza la hipotesis nula de que los residuos no están correlacionados espacialmente. Por lo tanto hay dependencia espacial en los residuos de los modelos. Existen otros aspectos espaciales que el modelo no está tomando en cuenta. No alcanza solo con considerar la distancia al centro y al sur de Madrid, hay otros variables espaciales que inciden en la formación del precio.
 
 También es posible hacer un test a nivel local para encontrar correlaciones en ciertas regiones.
 
@@ -188,7 +191,7 @@ pl_pt(pisos_muestra,color2 = imoranlocal$Z.Ii,size2 =pisos_muestra$registo ,dd =
 #Fijo la vista en el centro y el zoom
 setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11) 
 ```
-En este caso la zona de Puerta del Ángel no se ve con tanta correlación alta como sucedía al realizar el test con la variable precio. Pero sí se sigue viendo en Puente de Vallecas y también al norte del Parque de Retiro con correlación alta. También aparece el distrito de Hortaleza, y los barrios de Concepción y Quintana con varios puntos rojos. 
+En este caso la zona de Puerta del Ángel no se ve con tanta correlación alta como sucedía al realizar el test con la variable precio. Pero sí se sigue viendo en Puente de Vallecas y también al norte del Parque de Retiro correlaciones altas. También aparece el distrito de Hortaleza, y los barrios de Concepción y Quintana con varios puntos rojos. 
 
 
 # 3) Introduce una variable más en el modelo. Dicha variable es la distancia mínima entre cada persona y la geolocalización de las oficinas bancarias de Madrid obtenidas con OSM. ¿Sigue habiendo dependencia espacial en los residuos del nuevo modelo? 
@@ -211,7 +214,7 @@ pisos_muestra$Dist_Min_b<-round(apply(Distancias,1,min),1)
 
 
 ```
-Creo luego un nuevo modelo, con las mismas variables del modelo depurado, y además le agrego la variable de distancia mínima a un banco recién creada.
+Creo luego un nuevo modelo, con las mismas variables del modelo depurado, y además le agrego la variable recién creada de distancia mínima a un banco.
 
 ```{r modelo con distancia a banco}
 
@@ -275,20 +278,36 @@ modelo_espacial_sar <- lagsarlm(
 summary(modelo_espacial_sar)
 
 ```
-Se observa que este modelo SAR mantiene las mismas variables regresoras que el modelo lm dpeurado anterior, pero agrega un factor espacial que es como incide en un piso, los precios de los pisos cercanos. Este factor espacial se multiplica por el coeficiente Rho, que en el summary se observa que es de 0.26719, y es significativo ya que su p-valor es inferior al 5%. 
+Se observa que este modelo SAR mantiene las mismas variables regresoras que el modelo lm depurado, pero agrega un factor espacial que es como incide en un piso los precios de los pisos cercanos. Este factor espacial se multiplica por el coeficiente Rho, que en el summary se observa que es de 0.26719, y es significativo ya que su p-valor es inferior al 5%. 
 
-Comparo la suma de los cuadrados de los residuos (SCR) para el modelo depurado y el modelo SAR.
+A continuación comparo el coeficiente de determinación (R cuadrado) del modelo lm depurado y del SAR.
 
-```{r comparación SCR modelos}
-paste("residuos modelo LM depurado",sum((modelo_lm_depurado$residuals)**2))
-paste("residuos modelo SAR",sum((modelo_espacial_sar$residuals)**2))
+```{r comparación coeficiente de determinación modelos}
+
+#Calculo suma de residuos (rss)
+rss_lm_depurado <- sum((modelo_lm_depurado$residuals)**2)
+rss_sar <- sum((modelo_espacial_sar$residuals)**2)
+      
+#Calculo suma de cuadrados totales (tss)
+tss <- sum((pisos_muestra$logprice-mean(pisos_muestra$logprice))**2)
+
+#Calculo R cuadrado de cada modelo
+r_sq_lm_depurado <- 1-rss_lm_depurado/tss
+r_sq_sar <- 1-rss_sar/tss
+      
+paste("Coeficiente de determinación modelo LM depurado:", round(r_sq_lm_depurado,4) )
+paste("Coeficiente de determinación modelo SAR:",round(r_sq_sar,4) )
+
+
+
 
 ```
-El modelo SAR reduce la suma del cuadrado de los errores. 
+El modelo SAR mejora el coeficiente de determinación. No obstante, el mismo sigue siendo bajo. 
+
 
 Resta ver si los residuos de este modelo SAR presentan dependencia espacial.
 
-```{r test de Moran residuos modelo con distancia a bancos, warning=FALSE,message=FALSE}
+```{r test de Moran residuos modelo SAR, warning=FALSE,message=FALSE}
 #Hago el test de Moran I contra los residuos
 moran.test(x = modelo_espacial_sar$residuals, listw = nb2listw(nb, style="W"))
 moran.plot(x = modelo_espacial_sar$residuals, listw = nb2listw(nb, style="W"),
@@ -298,7 +317,7 @@ Se observa que el p-valor es bastante superior al 5%,  por lo que no se rechaza 
 
 # 5) Modeliza el precio con un SEM. ¿Es significativo el factor de dependencia espacial? Interpreta el modelo. 
 
-Parto nuevamente de la misma fórmula que el modelo lineal depurado, solo que ahora usamos un modelo SEM, donde se toman en cuenta los efectos de los rezagos espaciales de los errores, los cuales son multiplicados por el coeficiente lambda.
+Parto nuevamente de la misma fórmula que el modelo lineal depurado, solo que ahora usamos un modelo SEM, donde se toman en cuenta los efectos de los rezagos espaciales de los errores, los cuales son multiplicados por el coeficiente lambda, el cual se obtiene a continuación.
 
 ```{r modelo espacial SEM}
 #La fórmula es la misma que la del modelo depurado
@@ -311,16 +330,26 @@ modelo_espacial_sem <- errorsarlm(
 #Hago el summary
 summary(modelo_espacial_sem)
 ```
-Se observa que el Lambda (factor de dependencia espacial) es de 0.27838 y el mismo es significativo ya que su alfa es inferior al 5%.
+Se observa que el Lambda (factor de dependencia espacial) es de 0.27838 y el mismo es significativo ya que su alfa es inferior al 5%. En este modelo, entonces, se está tomando en cuenta que el error tiene una estructura espacial.
 
-```{r comparación SCR tres modelos}
-paste("residuos modelo LM depurado",sum((modelo_lm_depurado$residuals)**2))
-paste("residuos modelo SAR",sum((modelo_espacial_sar$residuals)**2))
-paste("residuos modelo SEM",sum((modelo_espacial_sem$residuals)**2))
+Comparo a continuación los coeficientes de determinación del lm depurado, el modelo SAR y el modelo SEM.
+
+
+```{r comparación R cuadrado tres modelos}
+
+#Calculo suma de residuos (rss)
+rss_sem <- sum((modelo_espacial_sem$residuals)**2)
+
+#Calculo R cuadrado de cada modelo
+r_sq_sem <- 1-rss_sem/tss
+      
+paste("Coeficiente de determinación modelo LM depurado", round(r_sq_lm_depurado,4) )
+paste("Coeficiente de determinación modelo SAR",round(r_sq_sar,4) )
+paste("Coeficiente de determinación modelo SEM",round(r_sq_sem,4) )
 ```
-El modelo SAR es el que presenta menor SCR. 
+El modelo SAR es el que presenta mejor coeficiente de determinación de los 3 modelos analizados. No obstante, cabe mencionar que el modelo SE presenta un mejor ajuste que el LM depurado.
 
-Se analiza el test de dependencia espacial de residuos.
+Por último, se analiza el test de dependencia espacial de residuos del SEM.
 
 ```{r test de Moran residuos modelo SEM, warning=FALSE,message=FALSE}
 #Hago el test de Moran I contra los residuos
@@ -332,76 +361,152 @@ El p-valor es de 62.94%, por lo que no hay dependencia espacial de residuos.
 
 # 6) Valora la capacidad predictiva del modelo SAR con la técnica de validación cruzada. 
 
+Para valorar la capacidad predictiva del modelo SAR, utilizaré la técnica de K Fold Validation. Haré 4 particiones, donde 3 de ellas servirán para entrenar el modelo y la restante la usaré para testearlo. Luego otra partición pasa a ser test y el resto train, y sigo irealizando dicho procedimiento hasta que cada una de las particiones haya sido utilizada como testeo en algún momento. Posteriormente saco la media del R cuadrado de esas cuatro iteraciones.
 
-Primero que nada es necesario separar la base en train y test. Usaré 70% para train y 30% para test.
+Ese procedimiento de particiones lo itero a su vez diez veces, ya que la selección de las particiones es también resultado de un muestreo. Por último, a partir del R cuadrado promedio de cada una de las 10 iteraciones, obtengo una distribución de dicho coeficiente de determinación.
 
-```{r separo en test y train}
+```{r K Fold Validation, warning = FALSE, message=FALSE}
 
-#Fijo semilla
+#Fijo semilla 
 set.seed(123)
 
-#hago muestreo
-train <- sample(1:nrow(pisos_muestra),size = round(nrow(pisos_muestra)*0.7,0))
+#Fijo parámetros para hacer k fold cross validation
+division <- 4
+veces <- 10
+media_rsq  <- c(0)
 
-#Particiono en test y train
-pisos_train <- pisos_muestra[train,]
-pisos_test <- pisos_muestra[-train,]
-
-
-```
-
-
-```{r warning=FALSE,message=FALSE}
-#Obtengo el set de vecinos más cercanos para test y train con k = 10
-nb_train <- knn2nb(knearneigh(cbind(pisos_train$LONG, pisos_train$LAT), k=10),
+#Fijo un loop para realizar 10 veces k fold validation con 4 particiones
+for (x in 1:veces){
+      
+      #Fijo particiones
+      pisos_muestra$cluster <- 
+                 sample(x=c(1:division), size = nrow(pisos_muestra),replace=T)
+      
+      #Creo un vector para incorporar los R cuadrados
+      rsq <- c(0)
+      
+      for (i in 1:division){
+            #Particiono en test y train
+            pisos_train <- pisos_muestra[pisos_muestra$cluster!=i,]
+            pisos_test <- pisos_muestra[pisos_muestra$cluster==i,]
+            
+            #Obtengo el set de vecinos más cercanos para test y train con k = 10
+            nb_train <- knn2nb(knearneigh(cbind(pisos_train$LONG, pisos_train$LAT), k=10),
                    row.names = rownames(pisos_train) )
 
 
-nb_test <- knn2nb(knearneigh(cbind(pisos_test$LONG, pisos_test$LAT), k=10),
+            nb_test <- knn2nb(knearneigh(cbind(pisos_test$LONG, pisos_test$LAT), k=10),
                   row.names =rownames(pisos_test) )
-```
-
-
-
-```{r}
-#Creo el modelo SAR con CV
-modelo_espacial_sar_CV <- lagsarlm(
+            
+            #Creo el modelo SAR con CV
+            modelo_espacial_sar_CV <- lagsarlm(
                               formula = formula,
                               data=pisos_train, 
                               listw = nb2listw(nb_train, style="W")) 
+            
+            #Paso a matriz
+            nb_test_matrix <- nb2mat(nb_test) 
 
-#Hago el summary
-summary(modelo_espacial_sar_CV)
+            #Me quedo solo con las X del modelo para poder predecir el precio
+            pisos_test_X <- pisos_test %>% 
+                                    dplyr::select(
+                                          minimum_nights,
+                                          review_scores_value,
+                                          calculated_host_listings_count,
+                                          bedrooms,
+                                          reviews_per_month,
+                                          accommodates,
+                                          Distancia_Centro,
+                                          Distancia_Sur
+                                    ) %>% 
+                  #Agrego columna para intercepto
+                  mutate(Intercept  = 1) %>% 
+                  #Lo pongo al principio
+                  dplyr::select(Intercept,everything())
+            
+            
+
+            #Realizo la predicción en test
+            fitt<-solve(
+                        as.matrix(
+                        diag(nrow(pisos_test_X))-
+                              (as.numeric(modelo_espacial_sar_CV$rho)*nb_test_matrix )
+                        ))
+                  
+            fitt2<-as.matrix(pisos_test_X) %*%
+                   as.matrix(modelo_espacial_sar_CV$coefficients)
+                  
+            fit_final<-fitt %*% fitt2
+                                    
+            #Calculo los residuos
+            resid <- pisos_test$logprice-as.numeric(fit_final)
+            resid_puros <- as.numeric(as.matrix(solve(fitt))%*% as.matrix(resid))
+                  
+            #Calculo suma de residuos al cuadrado
+            rss_sar_test <- sum(resid_puros **2)
+                  
+            #Calculo suma de cuadrados totales en test
+            tss_test <-  sum((pisos_test$logprice-mean(pisos_test$logprice))**2)
+                  
+            #Calculo R cuadrado
+            rsq[i] <- 1-rss_sar_test/tss_test
+                              
+            
+      }
+      
+      #Calculo el R cuadrado medio de las 4 divisiones para cada iteración
+      media_rsq[x] <- mean(rsq)
+}
+
 ```
-```{r}
 
-#Paso a matriz
-nb_test_matrix <- nb2mat(nb_test) 
+Una vez ejecutado 10 veces el proceso de k fold cross validation con 4 folds, se puede ver la distribución del coeficiente de determinación. A continuación se exponen los cuartiles, así como el máximo y mínimo de las 10 iteraciones.
 
-#Me quedo solo con las X del modelo para poder predecir el precio
-pisos_test_X <- pisos_test %>% 
-                        dplyr::select(
-                              minimum_nights,
-                              review_scores_value,
-                              calculated_host_listings_count,
-                              bedrooms,
-                              reviews_per_month,
-                              accommodates,
-                              Distancia_Centro,
-                              Distancia_Sur
-                        )
-
-rownames(pisos_test_X) <- 1:nrow(pisos_test_X)
+```{r minimo maximo y cuartiles}
+quantile(media_rsq)
+```
+Se puede asumir que la esperanza matemática del coeficiente de determinación usando un modelo SAR va a ser la mediana, es decir `r quantile(media_rsq,probs=c(0.5))`, y que no deberíamos esperar R cuadrados superiores a `r max(media_rsq)`).
 
 
-fitt<-solve(as.matrix(diag(nrow(pisos_test_X))-(as.numeric(modelo_espacial_sar_CV$rho)*nb_test_matrix )))
-fitt2<-as.matrix(pisos_test_X) %*% as.matrix(modelo_espacial_sar_CV$coefficients[-1])+modelo_espacial_sar_CV$coefficients[1]
-fit_final<-fitt %*% fitt2
+# 7) Propón un modelo GWR para estimar los residuos con un cierto suavizado.
+
+Primero que nada, se debe definir el ancho espacial óptimo para ponderar el modelo.
+
+```{r ancho espacial óptimo, warning=F,message=F}
+#Convierto la base de datos en base de datos espacial
+pisos_muestra$residuos<-modelo_espacial_sem$residuals
+puntos_sp<-pisos_muestra
+coordinates(puntos_sp)<- c("LONG","LAT")
+proj4string(puntos_sp) <- CRS("+proj=longlat +datum=WGS84")
+
+#Obtenemos el mejor BW
+bw <- gwr.sel(residuos~1, data=puntos_sp)
+
+paste("El mejor ancho de banda es:",bw)
+```
+Con este ancho de banda es que se realizará el modelo. Especifico el modelo para estimar los residuos.
+
+
+```{r modelo gwr, warning=F,message=F}
+
+#Estimo modelo gwr
+modelo_espacial_gwr <-  gwr(residuos~1, data=puntos_sp, bandwidth=bw)
+
 
 ```
 
-```{r}
-paste("residuos modelo SAR con CV",sum((fit_final-  pisos_test$logprice)**2))
+A continuación analizo en el mapa como quedan distribuidos los interceptos del modelo.
+
+```{r mapa con gwr, warning=F,message=F}
+
+#Multiplico por mil los interceptos solo a efectos de que puedan verse en la leyenda,
+#ya que son números muy reducidos.
+pisos_muestra$intercept<-modelo_espacial_gwr$SDF$`(Intercept)`*1000
+
+#Ploteo el mapa
+pl_pt(pisos_muestra,color2 = pisos_muestra$intercept,size2 =pisos_muestra$registo ,dd = 6) %>% 
+#Fijo la vista en el centro y el zoom
+setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11)   
 ```
 
-
+Hay claramente una distinción entre oeste y este de Madrid. 
