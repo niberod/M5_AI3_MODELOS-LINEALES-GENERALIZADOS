@@ -103,13 +103,13 @@ pl_pt(pisos_muestra,color2 = imoranlocal$Z.Ii,size2 =pisos_muestra$registo ,dd =
 #Fijo la vista en el centro y el zoom
 setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11) 
 ```
-Centrándonos en los valores altos, se observan concentración de puntos rojos (alta correlación espacial) en el barrio residencial de Puerta del Ángel, al norte del Parque del Retiro, y también en la zona norte del distrito de Puente de Vallecas. Estos tres focos tienen cierto sentido, ya que Puerta del Ángel se trata de un barrio residencial de moda conocido como "El Brooklyn Madrileño" donde han subido los precios del metro cuadrado (ver  https://www.telemadrid.es/noticias/madrid/Brooklyn-madrileno-barrio-moda-problemas-0-2368263175--20210813111855.html). Puente de Vallecas es uno de los distritos más poblados de Madrid (https://es.wikipedia.org/wiki/Puente_de_Vallecas) y la zona al norte del parque de Retiro puede ser una zona concurrida por turistas.
+Centrándonos en los valores altos, se observan concentración de puntos rojos (alta correlación espacial) en el barrio residencial de Puerta del Ángel, al norte del Parque del Retiro, y también en la zona norte del distrito de Puente de Vallecas. Estos tres focos tienen cierto sentido, ya que Puerta del Ángel se trata de un barrio residencial de moda conocido como "El Brooklyn Madrileño" donde han subido los precios del metro cuadrado (ver  https://www.telemadrid.es/noticias/madrid/Brooklyn-madrileno-barrio-moda-problemas-0-2368263175--20210813111855.html), Puente de Vallecas es uno de los distritos más poblados de Madrid (https://es.wikipedia.org/wiki/Puente_de_Vallecas) y la zona al norte del parque de Retiro puede ser una zona concurrida por turistas.
 
 Por lo tanto se observa también una dependencia espacial local.
 
 # 2) Establece un modelo lineal para estimar la variable precio por m2. ¿Hay dependencia espacial en los residuos del modelo? 
 
-Para establecer un modelo lineal que permita estimar el precio, uso como variable dependiente el logaritmo del precio, a efectos de obtener mejores modelos, y para asegurarse de que las estimaciones sean positivas. Acto seguido, creo primero el modelo lineal saturado, usando todas las variables salvo latitud, longitud, precio, la variable registo creada en en el ejercicio anterior, y el tipo de habitación (ya que todos los pisos son de la misma categoría: "Entire home/apt").
+Para establecer un modelo lineal que permita estimar el precio, uso como variable dependiente el logaritmo del precio, a efectos de obtener mejores modelos, y para asegurarme de que las estimaciones sean positivas. Acto seguido, creo primero el modelo lineal saturado, usando todas las variables salvo latitud, longitud, precio, la variable registo creada en en el ejercicio anterior, y el tipo de habitación (ya que todos los pisos son de la misma categoría: "Entire home/apt").
 
 
 ```{r modelo saturado}
@@ -172,7 +172,7 @@ moran.plot(x = modelo_lm_depurado$residuals, listw = nb2listw(nb, style="W"),
            main="Gráfico I Moran")
 ```
 
-El p-valor es menor a un nivel de significación del 5%, por lo que se rechaza la hipotesis nula de que los residuos no están correlacionados espacialmente. Por lo tanto hay dependencia espacial en los residuos de los modelos. Existen otros aspectos espaciales que el modelo no está tomando en cuenta. No alcanza solo con considerar la distancia al centro y al sur de Madrid, hay otros variables espaciales que inciden en la formación del precio.
+El p-valor es menor a un nivel de significación del 5%, por lo que se rechaza la hipotesis nula de que los residuos no están correlacionados espacialmente. Por lo tanto hay dependencia espacial en los residuos de los modelos. Existen otros aspectos espaciales que el modelo no está tomando en cuenta. No alcanza solo con considerar la distancia al centro y al sur de Madrid, hay otros factores espaciales que inciden en la formación del precio.
 
 También es posible hacer un test a nivel local para encontrar correlaciones en ciertas regiones.
 
@@ -186,7 +186,7 @@ imoranlocal<-as.data.frame(
             )
       )
                 
-#Realizo el map con correlaciones locales        
+#Realizo el mapa con correlaciones locales        
 pl_pt(pisos_muestra,color2 = imoranlocal$Z.Ii,size2 =pisos_muestra$registo ,dd = 6) %>% 
 #Fijo la vista en el centro y el zoom
 setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11) 
@@ -317,7 +317,7 @@ Se observa que el p-valor es bastante superior al 5%,  por lo que no se rechaza 
 
 # 5) Modeliza el precio con un SEM. ¿Es significativo el factor de dependencia espacial? Interpreta el modelo. 
 
-Parto nuevamente de la misma fórmula que el modelo lineal depurado, solo que ahora usamos un modelo SEM, donde se toman en cuenta los efectos de los rezagos espaciales de los errores, los cuales son multiplicados por el coeficiente lambda, el cual se obtiene a continuación.
+Parto nuevamente de la misma fórmula que el modelo lineal depurado, solo que ahora usamos un modelo SEM donde se toman en cuenta, además de las variables regresoras del modelo depurado, los efectos de los rezagos espaciales de los errores, los cuales son multiplicados por el coeficiente lambda, el cual se obtiene a continuación.
 
 ```{r modelo espacial SEM}
 #La fórmula es la misma que la del modelo depurado
@@ -330,10 +330,10 @@ modelo_espacial_sem <- errorsarlm(
 #Hago el summary
 summary(modelo_espacial_sem)
 ```
+
 Se observa que el Lambda (factor de dependencia espacial) es de 0.27838 y el mismo es significativo ya que su alfa es inferior al 5%. En este modelo, entonces, se está tomando en cuenta que el error tiene una estructura espacial.
 
 Comparo a continuación los coeficientes de determinación del lm depurado, el modelo SAR y el modelo SEM.
-
 
 ```{r comparación R cuadrado tres modelos}
 
@@ -347,7 +347,7 @@ paste("Coeficiente de determinación modelo LM depurado", round(r_sq_lm_depurado
 paste("Coeficiente de determinación modelo SAR",round(r_sq_sar,4) )
 paste("Coeficiente de determinación modelo SEM",round(r_sq_sem,4) )
 ```
-El modelo SAR es el que presenta mejor coeficiente de determinación de los 3 modelos analizados. No obstante, cabe mencionar que el modelo SE presenta un mejor ajuste que el LM depurado.
+El modelo SAR es el que presenta mejor coeficiente de determinación de los 3 modelos analizados. No obstante, cabe mencionar que el modelo SEM presenta un mejor ajuste que el LM depurado.
 
 Por último, se analiza el test de dependencia espacial de residuos del SEM.
 
@@ -361,7 +361,7 @@ El p-valor es de 62.94%, por lo que no hay dependencia espacial de residuos.
 
 # 6) Valora la capacidad predictiva del modelo SAR con la técnica de validación cruzada. 
 
-Para valorar la capacidad predictiva del modelo SAR, utilizaré la técnica de K Fold Validation. Haré 4 particiones, donde 3 de ellas servirán para entrenar el modelo y la restante la usaré para testearlo. Luego otra partición pasa a ser test y el resto train, y sigo irealizando dicho procedimiento hasta que cada una de las particiones haya sido utilizada como testeo en algún momento. Posteriormente saco la media del R cuadrado de esas cuatro iteraciones.
+Para valorar la capacidad predictiva del modelo SAR, utilizaré la técnica de K Fold Validation. Haré 4 particiones, donde 3 de ellas servirán para entrenar el modelo y la restante la usaré para testearlo. Luego otra partición pasa a ser test y el resto train, y sigo realizando dicho procedimiento hasta que cada una de las particiones haya sido utilizada como testeo en algún momento. Posteriormente saco la media del R cuadrado de esas cuatro iteraciones.
 
 Ese procedimiento de particiones lo itero a su vez diez veces, ya que la selección de las particiones es también resultado de un muestreo. Por último, a partir del R cuadrado promedio de cada una de las 10 iteraciones, obtengo una distribución de dicho coeficiente de determinación.
 
@@ -465,12 +465,12 @@ Una vez ejecutado 10 veces el proceso de k fold cross validation con 4 folds, se
 ```{r minimo maximo y cuartiles}
 quantile(media_rsq)
 ```
-Se puede asumir que la esperanza matemática del coeficiente de determinación usando un modelo SAR va a ser la mediana, es decir `r quantile(media_rsq,probs=c(0.5))`, y que no deberíamos esperar R cuadrados superiores a `r max(media_rsq)`).
+Se puede asumir que la esperanza matemática del coeficiente de determinación usando un modelo SAR va a ser la mediana, es decir `r quantile(media_rsq,probs=c(0.5))`, y que no deberíamos esperar R cuadrados superiores a `r max(media_rsq)`.
 
 
 # 7) Propón un modelo GWR para estimar los residuos con un cierto suavizado.
 
-Primero que nada, se debe definir el ancho espacial óptimo para ponderar el modelo.
+Para esta pregunta tomo los residuos del modelo SEM especificado en el ejercicio 5. Primero que nada, defino el ancho espacial óptimo para ponderar el modelo.
 
 ```{r ancho espacial óptimo, warning=F,message=F}
 #Convierto la base de datos en base de datos espacial
@@ -509,4 +509,4 @@ pl_pt(pisos_muestra,color2 = pisos_muestra$intercept,size2 =pisos_muestra$regist
 setView(lng = -3.7041861298563576,lat=40.417289194614696 , zoom = 11)   
 ```
 
-Hay claramente una distinción entre oeste y este de Madrid. 
+En el mapa se observa claramente una distribución marcada entre el oeste y este de Madrid, por lo que si bien con el modelo espacial SEM se resolvió el problema de dependencia espacial de los residuos, no se resolvió la heterocedasticidad espacial de los mismos.
